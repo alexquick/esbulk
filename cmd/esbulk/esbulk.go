@@ -16,7 +16,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/miku/esbulk"
+	"github.com/alexquick/esbulk"
 	"github.com/sethgrid/pester"
 )
 
@@ -73,6 +73,7 @@ func indexSettingsRequest(body string, options esbulk.Options) (*http.Response, 
 func main() {
 	var serverFlags esbulk.ArrayFlags
 	flag.Var(&serverFlags, "server", "elasticsearch server, this works with https as well")
+	retries := flag.Int("retries", 0, "set the number of retries for failed batches")
 
 	flag.Parse()
 
@@ -135,6 +136,7 @@ func main() {
 		IDField:   *idfield,
 		Username:  username,
 		Password:  password,
+		Retries:   *retries,
 	}
 
 	if *verbose {

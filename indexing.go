@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"math/rand"
 	"net/http"
 	"strings"
@@ -15,6 +16,8 @@ import (
 
 	"github.com/sethgrid/pester"
 )
+
+const backoff = 2
 
 var errParseCannotServerAddr = errors.New("cannot parse server address")
 
@@ -29,6 +32,7 @@ type Options struct {
 	Scheme    string // http or https; deprecated, use: Servers.
 	Username  string
 	Password  string
+	Retries   int //number of times to retry a failed batch
 }
 
 // Item represents a bulk action.
@@ -77,6 +81,21 @@ func nestedStr(tokstr []string, docmap map[string]interface{}, currentID string)
 	}
 	return TokenVal
 
+}
+
+// BulkIndexWithRetries indexes documents into elasticsearch retrying failures
+func BulkIndexWithRetries(doc []string, options Options) error {
+	err := BulkIndex(doc, options)
+	for i := 0; i < options.Retries && err != nil; i++ {
+		currentBackoff := time.Duration(backoff*math.Pow(2, float64(i))) * time.Second
+		log.Printf("Error with batch %v. Retry %d of %d. Sleeping for %v", err, i+1, options.Retries, currentBackoff)
+		time.Sleep(currentBackoff)
+		err = BulkIndex(doc, options)
+	}
+	if err != nil {
+		log.Printf("Error with batch %v. Failed %d tries.", err, options.Retries+1)
+	}
+	return err
 }
 
 // BulkIndex takes a set of documents as strings and indexes them into elasticsearch.
@@ -227,7 +246,7 @@ func Worker(id string, options Options, lines chan string, wg *sync.WaitGroup) {
 				log.Fatalf("expected %d, but got %d", len(docs), n)
 			}
 
-			if err := BulkIndex(msg, options); err != nil {
+			if err := BulkIndexWithRetries(msg, options); err != nil {
 				log.Fatal(err)
 			}
 			if options.Verbose {
